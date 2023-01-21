@@ -2,6 +2,7 @@
 
 import { createServer } from "http";
 import { PlaywrightCrawler } from "crawlee";
+import { readFile, writeFile } from "fs/promises";
 
 let price;
 
@@ -19,28 +20,80 @@ const crawler = new PlaywrightCrawler({
   // headless: false,
 });
 
-let server = createServer(async (req, res) => {
-  //@ts-ignore
-  let urlObj = new URL(req.url, `http://${req.headers.host}`);
+async function handleReqMethod(req, res) {
+  if (req.method == "GET") {
+    let userThreshold = parseUrl(req);
+    let threshold = await defineThreshold(userThreshold);
 
-  //@ts-ignore
-  let threshold = parseFloat(urlObj.searchParams.get("threshold"));
+    await crawler.run(["https://goldprice.org/"]);
 
-  await crawler.run(["https://goldprice.org/"]);
-
-  let goldPrice = 0;
-
-  if (price) {
-    goldPrice = parseFloat(price.split(",").join(""));
+    let goldPrice = definePrice();
+    GET$handleAndSendRes(res, goldPrice, threshold);
+  } else if (req.method == "POST") {
+    await POST$handleAndSendRes(req, res);
   }
 
+  res.end();
+}
+
+async function POST$handleAndSendRes(req, res) {
+  var body = "";
+  req.on("data", function (data) {
+    body += data;
+    console.log("Partial body: " + body);
+  });
+  req.on("end", async function () {
+    await writeFile("./src/data.json", body, {
+      encoding: "utf-8",
+    });
+  });
+
+  res.write("threshold updated");
+}
+
+function definePrice() {
+  if (price) {
+    return parsedPrice();
+  } else {
+    return 0;
+  }
+}
+
+function parsedPrice() {
+  return parseFloat(price.split(",").join(""));
+}
+
+async function defineThreshold(userThreshold) {
+  let threshold;
+  if (!userThreshold) {
+    let rawData = await readFile("./src/data.json", { encoding: "utf-8" });
+    let data = JSON.parse(rawData);
+    threshold = data.threshold;
+  } else {
+    threshold = userThreshold;
+  }
+  return threshold;
+}
+
+function parseUrl(req) {
+  //@ts-ignore
+  let urlObj = new URL(req.url, `http://${req.headers.host}`);
+  //@ts-ignore
+  let userThreshold = parseFloat(urlObj.searchParams.get("threshold"));
+
+  return userThreshold;
+}
+
+function GET$handleAndSendRes(res, goldPrice, threshold) {
   if (goldPrice > threshold) {
     res.write(`gold price is greater than ${threshold} => ${goldPrice}`);
   } else {
     res.write(`gold price is less than ${threshold} => ${goldPrice}`);
   }
+}
 
-  res.end();
+let server = createServer(async (req, res) => {
+  handleReqMethod(req, res);
 });
 
 server.listen(8080, undefined, undefined, () => {
