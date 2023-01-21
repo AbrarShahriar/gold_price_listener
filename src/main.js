@@ -1,7 +1,9 @@
+// @ts-check
+
 import { createServer } from "http";
 import { PlaywrightCrawler } from "crawlee";
 
-let price = "";
+let price;
 
 const crawler = new PlaywrightCrawler({
   requestHandler: async ({ request, page, log }) => {
@@ -18,6 +20,12 @@ const crawler = new PlaywrightCrawler({
 });
 
 let server = createServer(async (req, res) => {
+  //@ts-ignore
+  let urlObj = new URL(req.url, `http://${req.headers.host}`);
+
+  //@ts-ignore
+  let threshold = parseFloat(urlObj.searchParams.get("threshold"));
+
   await crawler.run(["https://goldprice.org/"]);
 
   let goldPrice = 0;
@@ -26,10 +34,10 @@ let server = createServer(async (req, res) => {
     goldPrice = parseFloat(price.split(",").join(""));
   }
 
-  if (goldPrice > 1920) {
-    res.write(`gold price is greater than 1920 => ${goldPrice}`);
+  if (goldPrice > threshold) {
+    res.write(`gold price is greater than ${threshold} => ${goldPrice}`);
   } else {
-    res.write(`gold price is less than 1920 => ${goldPrice}`);
+    res.write(`gold price is less than ${threshold} => ${goldPrice}`);
   }
 
   res.end();
