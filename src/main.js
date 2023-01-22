@@ -22,6 +22,8 @@ const crawler = new PlaywrightCrawler({
 
 let app = express();
 
+app.disable("etag");
+
 app.use(
   cors({
     origin: "*",
