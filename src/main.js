@@ -23,6 +23,7 @@ const crawler = new PlaywrightCrawler({
 let app = express();
 
 app.use(cors());
+app.use(express.json());
 
 app.get("/", async (req, res) => {
   let userThreshold = req.query.threshold;
@@ -33,7 +34,8 @@ app.get("/", async (req, res) => {
     let data = JSON.parse(rawData);
     threshold = data.threshold;
   } else {
-    threshold = userThreshold;
+    // @ts-ignore
+    threshold = parseFloat(userThreshold);
   }
 
   await crawler.run(["https://goldprice.org/"]);
@@ -58,7 +60,7 @@ app.get("/", async (req, res) => {
 app.post("/", async (req, res) => {
   var body = req.body;
 
-  await writeFile("./src/data.json", body, {
+  await writeFile("./src/data.json", JSON.stringify(body, null, 2), {
     encoding: "utf-8",
   });
 
