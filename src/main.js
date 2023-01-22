@@ -1,8 +1,9 @@
 // @ts-check
 
-import { createServer } from "http";
 import { PlaywrightCrawler } from "crawlee";
 import { readFile, writeFile } from "fs/promises";
+import express from "express";
+import cors from "cors";
 
 let price;
 
@@ -17,54 +18,16 @@ const crawler = new PlaywrightCrawler({
 
     price = goldPrice;
   },
-  // headless: false,
 });
 
-async function handleReqMethod(req, res) {
-  if (req.method == "GET") {
-    let userThreshold = parseUrl(req);
-    let threshold = await defineThreshold(userThreshold);
+let app = express();
 
-    await crawler.run(["https://goldprice.org/"]);
+app.use(cors());
 
-    let goldPrice = definePrice();
-    GET$handleAndSendRes(res, goldPrice, threshold);
-  } else if (req.method == "POST") {
-    await POST$handleAndSendRes(req, res);
-  }
-
-  res.end();
-}
-
-async function POST$handleAndSendRes(req, res) {
-  var body = "";
-  req.on("data", function (data) {
-    body += data;
-    console.log("Partial body: " + body);
-  });
-  req.on("end", async function () {
-    await writeFile("./src/data.json", body, {
-      encoding: "utf-8",
-    });
-  });
-
-  res.write("threshold updated");
-}
-
-function definePrice() {
-  if (price) {
-    return parsedPrice();
-  } else {
-    return 0;
-  }
-}
-
-function parsedPrice() {
-  return parseFloat(price.split(",").join(""));
-}
-
-async function defineThreshold(userThreshold) {
+app.get("/", async (req, res) => {
+  let userThreshold = req.query.threshold;
   let threshold;
+
   if (!userThreshold) {
     let rawData = await readFile("./src/data.json", { encoding: "utf-8" });
     let data = JSON.parse(rawData);
@@ -72,42 +35,40 @@ async function defineThreshold(userThreshold) {
   } else {
     threshold = userThreshold;
   }
-  return threshold;
-}
 
-function parseUrl(req) {
-  //@ts-ignore
-  let urlObj = new URL(req.url, `http://${req.headers.host}`);
-  //@ts-ignore
-  let userThreshold = parseFloat(urlObj.searchParams.get("threshold"));
+  let goldPrice = price ? parsedPrice() : 0;
 
-  return userThreshold;
-}
-
-function GET$handleAndSendRes(res, goldPrice, threshold) {
   if (goldPrice > threshold) {
-    res.write(`gold price is greater than ${threshold} => ${goldPrice}`);
+    res.status(200).json({
+      message: `gold price is greater than ${threshold} => ${goldPrice}`,
+      curPrice: goldPrice,
+      curThreshold: threshold,
+    });
   } else {
-    res.write(`gold price is less than ${threshold} => ${goldPrice}`);
+    res.status(200).json({
+      message: `gold price is less than ${threshold} => ${goldPrice}`,
+      curPrice: goldPrice,
+      curThreshold: threshold,
+    });
   }
-}
 
-function cors(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "OPTIONS, GET, POST");
-  res.setHeader("Access-Control-Max-Age", 2592000);
-  if (req.method === "OPTIONS") {
-    res.writeHead(200);
-    res.end();
-    return;
-  }
-}
-
-let server = createServer(async (req, res) => {
-  cors(req, res);
-  handleReqMethod(req, res);
+  await crawler.run(["https://goldprice.org/"]);
 });
 
-server.listen(8080, undefined, undefined, () => {
+app.post("/", async (req, res) => {
+  var body = req.body;
+
+  await writeFile("./src/data.json", body, {
+    encoding: "utf-8",
+  });
+
+  res.status(201).json({ message: "threshold updated" });
+});
+
+app.listen(8080, () => {
   console.log("listening...");
 });
+
+function parsedPrice() {
+  return parseFloat(price.split(",").join(""));
+}
