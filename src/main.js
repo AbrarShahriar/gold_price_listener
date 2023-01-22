@@ -25,6 +25,7 @@ let app = express();
 app.use(
   cors({
     origin: "*",
+    methods: "GET,POST,OPTIONS",
   })
 );
 app.use(express.json());
