@@ -36,6 +36,8 @@ app.get("/", async (req, res) => {
     threshold = userThreshold;
   }
 
+  await crawler.run(["https://goldprice.org/"]);
+
   let goldPrice = price ? parsedPrice() : 0;
 
   if (goldPrice > threshold) {
@@ -51,8 +53,6 @@ app.get("/", async (req, res) => {
       curThreshold: threshold,
     });
   }
-
-  await crawler.run(["https://goldprice.org/"]);
 });
 
 app.post("/", async (req, res) => {
