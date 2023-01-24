@@ -12,8 +12,12 @@
     "playwright": "*"
   },
   "scripts": {
-    "start": "node src/main.js"
+    "start": "node src/main.js",
+    "dev": "nodemon src/main.js"
   },
   "author": "It's not you it's me",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "nodemon": "^2.0.20"
+  }
 }

@@ -10,14 +10,12 @@ import fetch from "node-fetch";
 dotenv.config();
 
 let price;
-let sendNotificationSwitch = true;
+let sendAboveNotificationSwitch = true;
+let sendBelowNotificationSwitch = true;
 let call = 1;
 
 const crawler = new PlaywrightCrawler({
-  requestHandler: async ({ request, page, log }) => {
-    const title = await page.title();
-    log.info(`Title of ${request.loadedUrl} is '${title}'`);
-
+  requestHandler: async ({ page }) => {
     let goldPriceContainer = page.locator(".gpoticker-price").first();
 
     let goldPrice = await goldPriceContainer.textContent();
@@ -38,95 +36,147 @@ app.use(
 );
 app.use(express.json());
 
+// ------------------------ GET DATA ------------------------
 app.get("/", async (req, res) => {
-  let userThreshold = req.query.threshold;
-  let threshold;
-
-  if (!userThreshold) {
-    let rawData = await readFile("./src/data.json", { encoding: "utf-8" });
-    let data = JSON.parse(rawData);
-    threshold = data.threshold;
-  } else {
-    // @ts-ignore
-    threshold = parseFloat(userThreshold);
-  }
+  let rawData = await readFile("./src/data.json", { encoding: "utf-8" });
+  let thresholds = JSON.parse(rawData);
 
   await crawler.run(["https://goldprice.org/"]);
 
   let goldPrice = price ? parsedPrice() : 0;
 
-  if (goldPrice > threshold) {
-    res.status(200).json({
-      message: `gold price is greater than ${threshold} => ${goldPrice}`,
-      curPrice: goldPrice,
-      curThreshold: threshold,
-    });
-  } else {
-    res.status(200).json({
-      message: `gold price is less than ${threshold} => ${goldPrice}`,
-      curPrice: goldPrice,
-      curThreshold: threshold,
-    });
-  }
+  res.status(200).json({
+    curPrice: goldPrice,
+    curMaxThreshold: thresholds.maxThreshold,
+    curMinThreshold: thresholds.minThreshold,
+  });
 });
 
+// ------------------------ UPDATE THRESHOLD ------------------------
+app.post("/", async (req, res) => {
+  var body = req.body;
+
+  let rawData = await readFile("./src/data.json", { encoding: "utf-8" });
+  let prevValues = JSON.parse(rawData);
+
+  console.log(body, prevValues);
+
+  if (body.maxThreshold && body.minThreshold) {
+    if (body.minThreshold >= body.maxThreshold) {
+      return res.status(403).json({
+        message: `Min Threshold (${body.minThreshold}) cannot be greater than Max Threshold (${body.maxThreshold})`,
+      });
+    }
+
+    sendAboveNotificationSwitch = true;
+    sendBelowNotificationSwitch = true;
+  } else if (body.maxThreshold && !body.minThreshold) {
+    sendAboveNotificationSwitch = true;
+  } else if (body.minThreshold && !body.maxThreshold) {
+    sendBelowNotificationSwitch = true;
+  }
+
+  await writeFile(
+    "./src/data.json",
+    JSON.stringify({ ...prevValues, ...body }, null, 2),
+    {
+      encoding: "utf-8",
+    }
+  );
+
+  res.status(201).json({ message: "threshold updated" });
+});
+
+// ------------------------ SEND NOTIFICATION ------------------------
 app.get("/notification", async (req, res) => {
   let rawData = await readFile("./src/data.json", { encoding: "utf-8" });
-  let data = JSON.parse(rawData);
-  let threshold = data.threshold;
+  let thresholds = JSON.parse(rawData);
 
-  sendNotificationSwitch && (await crawler.run(["https://goldprice.org/"]));
+  (sendAboveNotificationSwitch || sendBelowNotificationSwitch) &&
+    (await crawler.run(["https://goldprice.org/"]));
 
   let goldPrice = price ? parsedPrice() : 0;
 
-  console.log(goldPrice, threshold);
+  let data;
 
-  if (goldPrice !== 0 && goldPrice > threshold) {
-    if (sendNotificationSwitch) {
-      let res = await fetch("https://onesignal.com/api/v1/notifications", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          accept: "application/json",
-          Authorization: `Basic ${process.env.ONESIGNAL_API_KEY}`,
-        },
-        body: JSON.stringify({
-          app_id: process.env.ONESIGNAL_APP_ID,
-          included_segments: ["Subscribed Users"],
-          contents: {
-            en: `Gold Price is now ${goldPrice} which is above ${threshold}`,
-          },
-          headings: {
-            en: `Gold Price Above Threshold!`,
-          },
-          name: "rest_api",
-        }),
-      });
+  console.log(goldPrice, thresholds);
 
-      let data = await res.json();
-
-      console.log(data);
-
-      sendNotificationSwitch = false;
-    }
+  if (goldPrice !== 0 && goldPrice >= thresholds.maxThreshold) {
+    data =
+      sendAboveNotificationSwitch &&
+      (await sendAboveNotification(goldPrice, thresholds));
+  } else if (goldPrice !== 0 && goldPrice <= thresholds.minThreshold) {
+    data =
+      sendBelowNotificationSwitch &&
+      (await sendBelowNotification(goldPrice, thresholds));
   }
 
-  res.status(200).json({ message: `Called ${call} time(s)` });
+  res.status(200).json({
+    message: `Called ${call} time(s)`,
+    notificationSent: Boolean(data),
+  });
 
   call++;
 });
 
-app.post("/", async (req, res) => {
-  var body = req.body;
-
-  await writeFile("./src/data.json", JSON.stringify(body, null, 2), {
-    encoding: "utf-8",
+async function sendAboveNotification(goldPrice, thresholds) {
+  let res = await fetch("https://onesignal.com/api/v1/notifications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      accept: "application/json",
+      Authorization: `Basic ${process.env.ONESIGNAL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      app_id: process.env.ONESIGNAL_APP_ID,
+      included_segments: ["Subscribed Users"],
+      contents: {
+        en: `Gold Price is now ${goldPrice} which is above ${thresholds.maxThreshold}`,
+      },
+      headings: {
+        en: `SELL! Gold Price: ${goldPrice}`,
+      },
+      name: "above",
+    }),
   });
 
-  sendNotificationSwitch = true;
+  let data = await res.json();
 
-  res.status(201).json({ message: "threshold updated" });
-});
+  console.log(data);
+  sendAboveNotificationSwitch = false;
+
+  return data;
+}
+
+async function sendBelowNotification(goldPrice, thresholds) {
+  let res = await fetch("https://onesignal.com/api/v1/notifications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      accept: "application/json",
+      Authorization: `Basic ${process.env.ONESIGNAL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      app_id: process.env.ONESIGNAL_APP_ID,
+      included_segments: ["Subscribed Users"],
+      contents: {
+        en: `Gold Price is now ${goldPrice} which is below ${thresholds.minThreshold}`,
+      },
+      headings: {
+        en: `BUY! Gold Price: ${goldPrice}`,
+      },
+      name: "below",
+    }),
+  });
+
+  let data = await res.json();
+
+  console.log(data);
+
+  sendBelowNotificationSwitch = false;
+
+  return data;
+}
 
 app.listen(8080, () => {
   console.log("listening...");

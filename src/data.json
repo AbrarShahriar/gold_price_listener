@@ -1,3 +1,4 @@
 {
-  "threshold": 1925
+  "maxThreshold": 1945,
+  "minThreshold": 1935
 }
